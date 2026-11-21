@@ -22,3 +22,5 @@ session.json
 *.sqlite
 *.sqlite3
 *.db
+tunnel.txt
+*.log

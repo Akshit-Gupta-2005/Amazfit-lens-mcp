@@ -1,64 +1,151 @@
-# Zepp Health Data Bridge & Probe Web Service
+# Amazfit Health Lens — Local-First Biometric MCP Server
 
-A lightweight, local-first web service implementing the **ZeppBridge official OAuth flow**, real-time token claim polling, and automatic health data retrieval checks.
-
----
-
-## What It Does
-
-1. **Local Host Web Server**: Runs locally at `http://localhost:8000`.
-2. **Browser-based Login**: Click **Connect with Zepp**, and the official Zepp login page opens in your web browser (supports Google, Apple, Xiaomi, or email/phone).
-3. **Automatic Return & Verification**:
-   - The server communicates with the ZeppBridge Cloudflare relay (`zeppbridge.com`), completes the code exchange, securely receives the tokens, and persists them locally in `session.json`.
-   - The web dashboard automatically detects login completion, greets the user with their profile name and user ID, and immediately triggers data checks.
-4. **Data Retrieval Checks & Metrics**:
-   - **Range Covered**: Displays the exact start and end date probed (e.g. past 90 days).
-   - **Activity Coverage**: Shows how many days have step/activity records, the total step count, and coverage percentage.
-   - **Sleep Coverage**: Shows how many nights have recorded sleep, average duration, and average sleep score.
-   - **Workouts**: Shows recorded sport sessions.
-   - **Data Tables**: Recent day-by-day activity and sleep breakdown.
-   - **Raw JSON Viewer**: Displays the exact payload returned by `api-open.zepp.com`, ready for designing your custom MCP tools.
+A privacy-focused, local-first **Model Context Protocol (MCP)** server and synchronization engine that connects personal health, fitness, and sleep telemetry from **Amazfit / Zepp wearables** directly to AI agents (**Claude Desktop** and **ChatGPT**).
 
 ---
 
-## How to Run
+## Architecture Overview
 
-1. Open a terminal in this directory:
-   ```bash
-   cd C:\Users\akshi\Documents\Coding\VSCode\python\projects\Vitalens\zepp_bridge_web
-   ```
-
-2. (Optional) Install dependencies if not already installed:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-3. Start the server:
-   ```bash
-   python run.py
-   ```
-   Or via uvicorn directly:
-   ```bash
-   uvicorn server:app --host 127.0.0.1 --port 8000
-   ```
-
-4. The browser will open automatically at `http://localhost:8000`. Click **Connect with Zepp** and sign in!
-
----
-
-## How It Works (ZeppBridge Architecture Reference)
-
-- **Zero-Secret Client Flow**: Because Zepp Open Platform OAuth requires a `client_secret` but does not support PKCE, requests are initiated via the public zero-knowledge relay:
-  - Generates 43-character URL-safe random `state` and `claim_secret`.
-  - Sends `claim_hash = sha256(claim_secret)` to `https://zeppbridge.com/api/zepp/oauth/start`.
-  - When the browser finishes authorization, the local server polls `/api/zepp/oauth/claim` delivering the secret to securely claim the tokens.
-- **Direct Cloud Sync**: All health records are retrieved directly from `https://api-open.zepp.com` using the issued Bearer access token.
+```
+┌────────────────────────────────────────────────────────┐
+│                   WEARABLE TELEMETRY                   │
+│         Amazfit Smartwatch / Smart Ring / Scale        │
+│                           │                            │
+│                           ▼                            │
+│                  Zepp Cloud Platform                   │
+└───────────────────────────┬────────────────────────────┘
+                            │ OAuth 2.0 / Bearer Auth
+                            ▼
+┌────────────────────────────────────────────────────────┐
+│            VITALENS DATA ENGINE (zepp_bridge_web)       │
+│                                                        │
+│  • Web OAuth Login & Zero-Secret Relay                 │
+│  • Anti-Truncation Multi-Chunk Synchronizer            │
+│  • Physiological Normalizer & Sleep Stage Parser       │
+│  • Local Persistent Store (zepp_data.sqlite)           │
+│  • Interactive Category Catalog Web UI (:8000)         │
+└───────────────────────────┬────────────────────────────┘
+                            │
+              ┌─────────────┴─────────────┐
+              │ stdio (Local)             │ SSE (HTTP/Tunnel)
+              ▼                           ▼
+┌───────────────────────────┐   ┌────────────────────────┐
+│      CLAUDE DESKTOP       │   │    CHATGPT (Cloud)     │
+│  claude_desktop_config    │   │  Custom MCP Connector  │
+└───────────────────────────┘   └────────────────────────┘
+```
 
 ---
 
-## Building an MCP Server Next
+## Key Features
 
-This codebase gives you everything you need to expose your Zepp data to an AI client (Claude, Codex, ChatGPT) via Model Context Protocol:
-- Authenticated session handling: [`get_valid_access_token()`](file:///C:/Users/akshi/Documents/Coding/VSCode/python/projects/Vitalens/zepp_bridge_web/server.py)
-- Token auto-refresh: [`refresh_official_token()`](file:///C:/Users/akshi/Documents/Coding/VSCode/python/projects/Vitalens/zepp_bridge_web/server.py)
-- API endpoints for activities, sleep, and sports: [`make_zepp_api_request()`](file:///C:/Users/akshi/Documents/Coding/VSCode/python/projects/Vitalens/zepp_bridge_web/server.py)
+1. **Deterministic AI Tool Calling (No Hallucinations)**:
+   - Exposes high-level analytical tools instead of raw data dumps.
+   - Computes recovery readiness, sleep debt, and pace z-scores directly in Python/SQL before returning structured findings to the LLM.
+2. **Dual MCP Transport Support**:
+   - **`stdio`**: Direct process communication for **Claude Desktop** and CLI agents.
+   - **`sse`**: Server-Sent Events over HTTP for **ChatGPT Custom MCP integration**, Cursor, and web clients.
+3. **100% Local Privacy**:
+   - Biometric records remain strictly on your local machine in `zepp_data.sqlite`.
+   - The LLM only receives anonymized, filtered context needed to answer the immediate prompt.
+4. **Anti-Truncation Sync Engine**:
+   - Automatically segments queries into safe chunk sizes (≤90 days for activities/sleep, ≤7 days for minute-level heart rate) to prevent Zepp's undocumented server-side data truncation.
+
+---
+
+## Indexed Biometric Domains
+
+| Category | Indexed Metrics | Primary MCP Purpose |
+| :--- | :--- | :--- |
+| **😴 Sleep & Recovery** | Duration, Sleep Score, Deep Sleep, Light Sleep, REM, Wake Time, Resting HR, Naps | Recovery grading, sleep debt tracking, circadian consistency. |
+| **🏃 Athletic Workouts** | Sport type (runs, walks, football, rides, gym), duration, distance, calories, avg/max HR, pace, cadence | Training workload analysis, pace efficiency, cardio effort. |
+| **🚶 Daily Activity** | Total steps, active calorie expenditure, walking distance | Daily physical activity volume and goal progression. |
+| **⏱️ Hourly Distribution**| 24-hour intra-day step breakdown | Sedentary window detection and active hour identification. |
+| **❤️ Heart Rate Series** | Minute-by-minute continuous BPM telemetry | Cardiovascular baseline tracking and heart rate spikes. |
+
+---
+
+## MCP Tools Reference
+
+The server exposes 7 distinct tools:
+
+- `get_health_overview()`: Executive dashboard of user profile, recent daily steps, last night's sleep score, and latest workout.
+- `get_recovery_status(lookback_days)`: Evaluates fatigue, sleep debt against an 8-hour target, and compares against 30-day baseline to provide a recovery recommendation.
+- `get_sleep_records(date_from, date_to, limit)`: Detailed nocturnal sleep logs, quality scores, resting HR, and deep/REM percentages.
+- `get_workouts(sport, date_from, date_to, limit)`: Filterable sports sessions with formatted durations (`1h 24m`), paces (`5:30 /km`), and heart rate stats.
+- `get_daily_activity(date_from, date_to, limit)`: Daily steps, distance in km, and active energy burn.
+- `get_hourly_activity(date)`: 24-hour step curve identifying peak activity hours.
+- `sync_zepp_data(days)`: On-demand live cloud sync from Zepp Open Platform to local SQLite.
+
+---
+
+## Getting Started
+
+### 1. Installation
+
+```bash
+cd zepp_bridge_web
+pip install -r requirements.txt
+```
+
+### 2. Connect Your Account & Sync Data
+
+Start the verification web dashboard:
+```bash
+python -m uvicorn server:app --host 127.0.0.1 --port 8000
+```
+- Open [http://localhost:8000](http://localhost:8000).
+- Click **Connect with Zepp** and authorize your account.
+- Select your historical range (e.g. **Past 90 Days**) and click **Sync & Populate Data Layer**.
+
+---
+
+## Connecting to AI Clients
+
+### A. Claude Desktop (stdio)
+
+Add the following to `%APPDATA%\Claude\claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "amazfit-health": {
+      "command": "python",
+      "args": [
+        "C:\\Users\\akshi\\Documents\\Coding\\VSCode\\python\\projects\\Vitalens\\zepp_bridge_web\\mcp_server.py"
+      ]
+    }
+  }
+}
+```
+Restart Claude Desktop. The **Hammer icon 🔨** will display all 7 Amazfit health tools.
+
+### B. ChatGPT (SSE + Tunnel)
+
+1. **Start the MCP server in SSE mode:**
+   ```bash
+   python start_chatgpt_mcp.py
+   ```
+   *(Listens on port `8001` at `/sse`)*
+
+2. **Expose port 8001 via a secure tunnel:**
+   ```bash
+   npx localtunnel --port 8001
+   ```
+   *(Or using ngrok: `ngrok http 8001`)*
+
+3. **In ChatGPT's "Add custom MCP server" dialog:**
+   - **Name**: `Amazfit Health Lens`
+   - **Connection**: `Server URL`
+   - **URL**: `https://<your-tunnel-url>/sse`
+   - **Authentication**: `None`
+
+---
+
+## Example Prompts to Ask
+
+- *"Give me an overview of my health, sleep, and workouts."*
+- *"Am I well recovered today? Should I push a hard training session or rest?"*
+- *"Look at my recent runs and walks. What was my average pace and heart rate?"*
+- *"Analyze my sleep quality over the last 14 days. Did I get enough deep and REM sleep?"*
+- *"What was my peak walking hour on my most active day last week?"*
