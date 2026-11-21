@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from db import init_db, get_categories_overview, get_category_sample, get_category_records
 from fetcher import ZeppDataSyncEngine
+from auto_sync import start_auto_sync, trigger_sync
 
 # Constants & Configuration
 RELAY_BASE = "https://zeppbridge.com"
@@ -31,6 +32,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.on_event("startup")
+def startup_event():
+    """Start periodic hourly auto-sync and launch immediate sync if session exists."""
+    start_auto_sync(interval_seconds=3600, startup_sync=True, startup_days=30, periodic_days=14)
 
 # In-memory store for pending authorizations
 pending_auths: Dict[str, Dict[str, Any]] = {}
@@ -197,6 +203,9 @@ def auth_poll(state: str = Query(...)):
             }
             save_session(session_data)
             pending_auths.pop(state, None)
+            # Trigger immediate background sync for newly connected account
+            import threading
+            threading.Thread(target=trigger_sync, kwargs={"days": 90, "force": True, "reason": "post-login"}, daemon=True).start()
             return {"status": "ready", "user_id": user_id, "nickname": nickname}
         else:
             return {"status": data.get("status", "failed"), "message": data.get("error")}

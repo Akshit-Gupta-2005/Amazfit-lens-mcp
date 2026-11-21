@@ -15,6 +15,7 @@ if CURRENT_DIR not in sys.path:
 from db import get_connection, DB_PATH
 from server import get_valid_access_token, get_session
 from fetcher import ZeppDataSyncEngine
+from auto_sync import start_auto_sync
 
 # Comprehensive System Instructions for AI Clients (ChatGPT, Claude)
 SERVER_INSTRUCTIONS = """You are connected to Amazfit Health Lens, an MCP server providing real-time physiological and wearable health data for the user from their Amazfit / Zepp smartwatch.
@@ -41,6 +42,9 @@ app = MCPServer(
     instructions=SERVER_INSTRUCTIONS,
     website_url="https://github.com/Akshit-Gupta-2005/Amazfit-lens-mcp"
 )
+
+# Start background auto-sync worker (immediate sync on start + hourly sync)
+start_auto_sync(interval_seconds=3600, startup_sync=True, startup_days=30, periodic_days=14)
 
 def format_duration(seconds: Optional[int]) -> str:
     """Format seconds into readable human string (e.g. 1h 24m or 14m 20s)."""
