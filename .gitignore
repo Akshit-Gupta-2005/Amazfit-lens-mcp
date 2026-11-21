@@ -1,0 +1,24 @@
+# Gradle & Android build artifacts
+.gradle/
+build/
+app/build/
+.kotlin/
+.idea/
+*.iml
+local.properties
+.DS_Store
+
+# Python cache & virtual environments
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+env/
+*.env
+
+# Sensitive tokens & Local user databases (Privacy & Security)
+session.json
+*.sqlite
+*.sqlite3
+*.db
