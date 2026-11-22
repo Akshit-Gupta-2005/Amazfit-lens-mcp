@@ -1,5 +1,6 @@
 import os
 import sys
+import time
 import json
 import sqlite3
 import datetime
@@ -68,6 +69,50 @@ def format_pace(sec_per_km: Optional[int]) -> str:
     s = sec_per_km % 60
     return f"{m}:{s:02d} /km"
 
+def refresh_today_if_stale(max_age_seconds: int = 120):
+    """
+    Ensure today's live steps/calories/distance are fresh from Zepp Cloud.
+    If today's record in SQLite is missing or older than max_age_seconds (default 2 min),
+    queries Zepp Cloud in real-time and updates SQLite.
+    """
+    today = datetime.date.today()
+    today_str = today.strftime("%Y-%m-%d")
+    now_ts = int(time.time())
+
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT synced_at FROM daily_activities WHERE date = ?", (today_str,))
+        row = cursor.fetchone()
+        if row and (now_ts - row["synced_at"]) < max_age_seconds:
+            return  # Already fresh
+
+    try:
+        token = get_valid_access_token()
+        engine = ZeppDataSyncEngine(token)
+        engine.sync_daily_activity(today, today)
+    except Exception as e:
+        sys.stderr.write(f"[LiveSync] Failed to refresh today's daily activity: {e}\n")
+
+def refresh_today_hourly_if_stale(max_age_seconds: int = 120):
+    """Ensure today's hourly step samples are fresh from Zepp Cloud."""
+    today = datetime.date.today()
+    today_str = today.strftime("%Y-%m-%d")
+    now_ts = int(time.time())
+
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT MAX(synced_at) FROM hourly_activities WHERE date = ?", (today_str,))
+        row = cursor.fetchone()
+        if row and row[0] and (now_ts - row[0]) < max_age_seconds:
+            return  # Already fresh
+
+    try:
+        token = get_valid_access_token()
+        engine = ZeppDataSyncEngine(token)
+        engine.sync_hourly_activity(today, today)
+    except Exception as e:
+        sys.stderr.write(f"[LiveSync] Failed to refresh today's hourly activity: {e}\n")
+
 # --- MCP Tools ---
 
 @app.tool()
@@ -80,9 +125,13 @@ def get_health_overview() -> Dict[str, Any]:
     - Call this tool FIRST whenever the user asks broad, open-ended questions like:
       "How am I doing?", "Summarize my health", "What did I do this week?", or "Give me a health checkup".
     """
+    # 1. Ensure today's live activity is fresh from Zepp Cloud (if older than 2 minutes)
+    refresh_today_if_stale(max_age_seconds=120)
+
     session = get_session() or {}
     nickname = session.get("nickname", "User")
     user_id = session.get("user_id", "Unknown")
+    today_str = datetime.date.today().strftime("%Y-%m-%d")
 
     with get_connection() as conn:
         cursor = conn.cursor()
@@ -117,19 +166,8 @@ def get_health_overview() -> Dict[str, Any]:
         cursor.execute("SELECT sport_type, COUNT(*) as cnt FROM workouts GROUP BY sport_type ORDER BY cnt DESC")
         sports_dist = {r["sport_type"]: r["cnt"] for r in cursor.fetchall()}
 
-    today_str = datetime.date.today().strftime("%Y-%m-%d")
-
-    # If today's activity is not yet recorded, trigger an immediate probe to Zepp Cloud
-    if not latest_activity or latest_activity.get("date") != today_str:
-        trigger_sync(days=3, force=False, reason="on-demand")
-        with get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT date, steps, active_calories, distance_meters FROM daily_activities ORDER BY date DESC LIMIT 1")
-            latest_act_row = cursor.fetchone()
-            if latest_act_row:
-                latest_activity = dict(latest_act_row)
-
-    today_sync_status = "up_to_date" if (latest_activity and latest_activity.get("date") == today_str) else f"Today's data ({today_str}) has not been uploaded to Zepp Cloud yet. Amazfit requires Bluetooth sync with the Zepp phone app. Ask user to open the Zepp mobile app and pull down to sync."
+    today_is_latest = (latest_activity and latest_activity.get("date") == today_str)
+    today_sync_status = "live_up_to_date" if today_is_latest else f"Latest recorded date in Zepp Cloud is {latest_activity.get('date') if latest_activity else 'none'}."
 
     return {
         "user_profile": {
@@ -355,15 +393,9 @@ def get_daily_activity(
     """
     today_str = datetime.date.today().strftime("%Y-%m-%d")
 
-    # If the query includes today or is unconstrained, verify if today is already indexed
-    needs_probe = (not date_to or date_to >= today_str) and (not date_from or date_from <= today_str)
-    if needs_probe:
-        with get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT 1 FROM daily_activities WHERE date = ?", (today_str,))
-            has_today = cursor.fetchone() is not None
-        if not has_today:
-            trigger_sync(days=3, force=False, reason="on-demand")
+    # If the query requests today (or is open/unconstrained), refresh today's data from Zepp Cloud if older than 2 minutes
+    if (not date_to or date_to >= today_str) and (not date_from or date_from <= today_str):
+        refresh_today_if_stale(max_age_seconds=120)
 
     limit = max(1, min(limit, 180))
     query = "SELECT date, steps, active_calories, distance_meters FROM daily_activities WHERE 1=1"
@@ -417,6 +449,10 @@ def get_hourly_activity(date: str) -> Dict[str, Any]:
     Parameters:
     - date: Calendar date in YYYY-MM-DD format (e.g. '2026-11-12').
     """
+    today_str = datetime.date.today().strftime("%Y-%m-%d")
+    if date == today_str:
+        refresh_today_hourly_if_stale(max_age_seconds=120)
+
     with get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT hour, steps, datetime_str FROM hourly_activities WHERE date = ? ORDER BY hour ASC", (date,))
