@@ -61,7 +61,13 @@ def trigger_sync(days: int = 14, force: bool = False, reason: str = "auto") -> O
 
         # Check if due (unless forced)
         if not force:
-            min_gap = 600 if reason == "startup" else 3500
+            if reason == "on-demand":
+                min_gap = 30
+            elif reason == "startup":
+                min_gap = 300
+            else:
+                min_gap = 800
+
             if not is_sync_due(min_interval_seconds=min_gap):
                 log(f"[AutoSync] [{reason}] Recent sync already up to date (< {min_gap}s ago). Skipping.")
                 return None
@@ -98,13 +104,13 @@ def _worker_loop(interval_seconds: int, startup_sync: bool, startup_days: int, p
         trigger_sync(days=periodic_days, force=False, reason="hourly-cron")
 
 def start_auto_sync(
-    interval_seconds: int = 3600,
+    interval_seconds: int = 900,
     startup_sync: bool = True,
     startup_days: int = 30,
-    periodic_days: int = 14
+    periodic_days: int = 7
 ):
     """
-    Start the background auto-sync worker thread if not already running.
+    Start the background auto-sync worker thread if not already running (default every 15 min).
     """
     global _sync_thread
     if _sync_thread and _sync_thread.is_alive():

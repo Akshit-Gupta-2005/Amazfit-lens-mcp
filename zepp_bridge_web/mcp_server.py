@@ -15,7 +15,7 @@ if CURRENT_DIR not in sys.path:
 from db import get_connection, DB_PATH
 from server import get_valid_access_token, get_session
 from fetcher import ZeppDataSyncEngine
-from auto_sync import start_auto_sync
+from auto_sync import start_auto_sync, trigger_sync
 
 # Comprehensive System Instructions for AI Clients (ChatGPT, Claude)
 SERVER_INSTRUCTIONS = """You are connected to Amazfit Health Lens, an MCP server providing real-time physiological and wearable health data for the user from their Amazfit / Zepp smartwatch.
@@ -34,6 +34,7 @@ Guidelines for AI:
 4. For questions about workouts, exercise, running, or training load, call `get_workouts`.
 5. For intra-day walking patterns, sedentary time, or step timing, call `get_hourly_activity`.
 6. When comparing dates, remember calendar dates are formatted as YYYY-MM-DD.
+7. If today's step count is missing or marked 'pending_bluetooth_sync', clearly explain to the user that their Amazfit watch transmits data to the Zepp app on their phone via Bluetooth. Prompt them to simply open the Zepp app on their phone and pull down on the screen to sync their watch to the cloud, then ask again.
 """
 
 # Initialize MCP Server with explicit instructions
@@ -43,8 +44,8 @@ app = MCPServer(
     website_url="https://github.com/Akshit-Gupta-2005/Amazfit-lens-mcp"
 )
 
-# Start background auto-sync worker (immediate sync on start + hourly sync)
-start_auto_sync(interval_seconds=3600, startup_sync=True, startup_days=30, periodic_days=14)
+# Start background auto-sync worker (immediate sync on start + every 15 min)
+start_auto_sync(interval_seconds=900, startup_sync=True, startup_days=30, periodic_days=7)
 
 def format_duration(seconds: Optional[int]) -> str:
     """Format seconds into readable human string (e.g. 1h 24m or 14m 20s)."""
@@ -116,6 +117,20 @@ def get_health_overview() -> Dict[str, Any]:
         cursor.execute("SELECT sport_type, COUNT(*) as cnt FROM workouts GROUP BY sport_type ORDER BY cnt DESC")
         sports_dist = {r["sport_type"]: r["cnt"] for r in cursor.fetchall()}
 
+    today_str = datetime.date.today().strftime("%Y-%m-%d")
+
+    # If today's activity is not yet recorded, trigger an immediate probe to Zepp Cloud
+    if not latest_activity or latest_activity.get("date") != today_str:
+        trigger_sync(days=3, force=False, reason="on-demand")
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT date, steps, active_calories, distance_meters FROM daily_activities ORDER BY date DESC LIMIT 1")
+            latest_act_row = cursor.fetchone()
+            if latest_act_row:
+                latest_activity = dict(latest_act_row)
+
+    today_sync_status = "up_to_date" if (latest_activity and latest_activity.get("date") == today_str) else f"Today's data ({today_str}) has not been uploaded to Zepp Cloud yet. Amazfit requires Bluetooth sync with the Zepp phone app. Ask user to open the Zepp mobile app and pull down to sync."
+
     return {
         "user_profile": {
             "nickname": nickname,
@@ -131,7 +146,8 @@ def get_health_overview() -> Dict[str, Any]:
         "sports_distribution": sports_dist,
         "latest_daily_activity": latest_activity,
         "latest_sleep": latest_sleep,
-        "latest_workout": latest_workout
+        "latest_workout": latest_workout,
+        "today_sync_status": today_sync_status
     }
 
 @app.tool()
@@ -337,6 +353,18 @@ def get_daily_activity(
     - date_to: Optional end date (YYYY-MM-DD).
     - limit: Maximum days to retrieve (default 30, max 180).
     """
+    today_str = datetime.date.today().strftime("%Y-%m-%d")
+
+    # If the query includes today or is unconstrained, verify if today is already indexed
+    needs_probe = (not date_to or date_to >= today_str) and (not date_from or date_from <= today_str)
+    if needs_probe:
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT 1 FROM daily_activities WHERE date = ?", (today_str,))
+            has_today = cursor.fetchone() is not None
+        if not has_today:
+            trigger_sync(days=3, force=False, reason="on-demand")
+
     limit = max(1, min(limit, 180))
     query = "SELECT date, steps, active_calories, distance_meters FROM daily_activities WHERE 1=1"
     params = []
@@ -357,10 +385,24 @@ def get_daily_activity(
         rows = cursor.fetchall()
 
     results = []
+    has_today_in_results = False
     for r in rows:
         d = dict(r)
         d["distance_km"] = round(d["distance_meters"] / 1000.0, 2) if d.get("distance_meters") else 0.0
+        if d.get("date") == today_str:
+            has_today_in_results = True
         results.append(d)
+
+    # If user specifically asked for today (date_from >= today) and today isn't in Zepp Cloud yet:
+    if date_from and date_from >= today_str and not has_today_in_results:
+        results.append({
+            "date": today_str,
+            "steps": 0,
+            "active_calories": 0.0,
+            "distance_km": 0.0,
+            "sync_status": "pending_bluetooth_sync",
+            "message": f"No step records found in Zepp Cloud for today ({today_str}) yet. Amazfit smartwatches upload steps via Bluetooth to the Zepp mobile app on the user's phone, which then syncs to the cloud. Please instruct the user to open their Zepp app on their phone and pull down on the Home screen to sync their watch with the cloud, then ask again."
+        })
 
     return results
 

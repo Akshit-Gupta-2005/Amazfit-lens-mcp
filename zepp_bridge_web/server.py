@@ -35,8 +35,8 @@ app.add_middleware(
 
 @app.on_event("startup")
 def startup_event():
-    """Start periodic hourly auto-sync and launch immediate sync if session exists."""
-    start_auto_sync(interval_seconds=3600, startup_sync=True, startup_days=30, periodic_days=14)
+    """Start periodic 15-minute auto-sync and launch immediate sync if session exists."""
+    start_auto_sync(interval_seconds=900, startup_sync=True, startup_days=30, periodic_days=7)
 
 # In-memory store for pending authorizations
 pending_auths: Dict[str, Dict[str, Any]] = {}
