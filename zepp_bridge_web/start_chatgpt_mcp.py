@@ -19,7 +19,8 @@ def main():
     print("   - Authentication: None")
     print("=" * 65 + "\n")
     
-    cmd = [sys.executable, os.path.join(CURRENT_DIR, "mcp_server.py"), "--transport", "sse", "--port", "8001"]
+    extra_args = sys.argv[1:]
+    cmd = [sys.executable, os.path.join(CURRENT_DIR, "mcp_server.py"), "--transport", "sse", "--port", "8001"] + extra_args
     subprocess.run(cmd)
 
 if __name__ == "__main__":

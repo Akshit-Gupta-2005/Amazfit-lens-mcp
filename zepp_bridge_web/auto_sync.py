@@ -58,6 +58,9 @@ def trigger_sync(days: int = 14, force: bool = False, reason: str = "auto") -> O
         if not session or not session.get("access_token"):
             log(f"[AutoSync] [{reason}] No authenticated Zepp session found. Waiting for user login.")
             return None
+        if session.get("is_demo"):
+            log(f"[AutoSync] [{reason}] Running in Demo mode with synthetic telemetry. Skipping cloud sync.")
+            return None
 
         # Check if due (unless forced)
         if not force:

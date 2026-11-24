@@ -75,6 +75,10 @@ def refresh_today_if_stale(max_age_seconds: int = 120):
     If today's record in SQLite is missing or older than max_age_seconds (default 2 min),
     queries Zepp Cloud in real-time and updates SQLite.
     """
+    session = get_session() or {}
+    if session.get("is_demo"):
+        return
+
     today = datetime.date.today()
     today_str = today.strftime("%Y-%m-%d")
     now_ts = int(time.time())
@@ -95,6 +99,10 @@ def refresh_today_if_stale(max_age_seconds: int = 120):
 
 def refresh_today_hourly_if_stale(max_age_seconds: int = 120):
     """Ensure today's hourly step samples are fresh from Zepp Cloud."""
+    session = get_session() or {}
+    if session.get("is_demo"):
+        return
+
     today = datetime.date.today()
     today_str = today.strftime("%Y-%m-%d")
     now_ts = int(time.time())
@@ -505,8 +513,13 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Amazfit Health Lens MCP Server")
     parser.add_argument("--transport", choices=["stdio", "sse"], default="stdio", help="Transport mode (stdio for Claude Desktop, sse for ChatGPT)")
     parser.add_argument("--host", default="0.0.0.0", help="Host to bind for SSE transport (default: 0.0.0.0)")
+    parser.add_argument("--demo", action="store_true", help="Populate SQLite with 90 days of synthetic biometric telemetry for zero-hardware evaluation")
     parser.add_argument("--port", type=int, default=8001, help="Port to bind for SSE transport (default: 8001)")
     args = parser.parse_args()
+
+    if args.demo:
+        from seed_demo_data import seed_demo_data
+        seed_demo_data(days=90)
 
     if args.transport == "sse":
         print("=" * 60)
