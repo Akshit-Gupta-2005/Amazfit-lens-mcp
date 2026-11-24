@@ -14,34 +14,28 @@ A high-performance, privacy-centric, local-first **Model Context Protocol (MCP)*
 
 ```mermaid
 flowchart TD
-    subgraph Wearable ["Edge Wearable Telemetry"]
-        Watch["Amazfit Smartwatch / Band / Ring"] -->|Bluetooth LE| Mobile["Zepp Mobile App (iOS / Android)"]
-        Mobile -->|Encrypted HTTPS Sync| Cloud["Zepp Open Platform API"]
+    subgraph Wearable["1. Edge Hardware & Cloud Sync"]
+        Watch["Amazfit Smartwatch / Band"] -->|BLE Sync| Mobile["Zepp Mobile App (iOS / Android)"]
+        Mobile -->|Encrypted HTTPS| Cloud["Zepp Open Platform API"]
     end
 
-    subgraph CoreEngine ["Vitalens Core Engine (Local-First Subsystem)"]
-        subgraph Ingestion ["Time-Series Ingestion & Resilience"]
-            Fetcher["ZeppDataSyncEngine<br/>• Dynamic Window Chunking (≤90d / ≤7d)<br/>• SWR Stale-Check (<120s TTL)"]
-            Normalizer["Physiological Normalizer<br/>• Sleep Architecture (Deep, REM, Light)<br/>• Workout Kinematics & Pace Telemetry"]
-            DB[("Local Persistent Store<br/>SQLite (WAL Mode)<br/>Zero-Cloud Storage")]
-            Fetcher --> Normalizer --> DB
-        end
-
-        subgraph AnalyticalLayer ["Deterministic Physiological Analytics"]
-            Analytics["Analytical Engine (Python / SQL)<br/>• Sleep Debt vs 8h Target<br/>• 30-Day Baselines & Z-Scores<br/>• Recovery Readiness Classification"]
-            DB --> Analytics
-        end
-
-        subgraph Protocol ["Model Context Protocol (MCP) Server"]
-            Stdio["stdio Transport<br/>(IPC for Claude Desktop)"]
-            SSE["SSE / HTTP Transport<br/>(Asynchronous Streaming for ChatGPT)"]
-            Analytics --> Stdio
-            Analytics --> SSE
-        end
+    subgraph Ingestion["2. Local-First Ingestion & Storage"]
+        Cloud -->|OAuth2 Bearer| Fetcher["ZeppDataSyncEngine<br/>- Dynamic Chunking (90d / 7d)<br/>- SWR Stale-Check (Sub-120s TTL)"]
+        Fetcher --> Normalizer["Physiological Normalizer<br/>- Multi-Stage Sleep Parser<br/>- Workout Kinematics & Pace"]
+        Normalizer --> DB[("Local SQLite Database<br/>WAL Mode / Zero-Cloud Storage")]
     end
 
-    subgraph Agents ["Autonomous AI Agent Ecosystem"]
-        Stdio -->|UNIX / Windows Pipe| Claude["Claude Desktop (Local Agent)"]
+    subgraph Analytics["3. Deterministic Edge Analytics"]
+        DB --> Calc["Physiological Analytics Engine<br/>- Sleep Debt vs 8h Baseline<br/>- 30-Day Moving Averages<br/>- Recovery Readiness Scoring"]
+    end
+
+    subgraph MCP["4. Model Context Protocol (MCP) Server"]
+        Calc --> Stdio["stdio Transport<br/>(IPC for Claude Desktop)"]
+        Calc --> SSE["SSE / HTTP Transport<br/>(Streaming for ChatGPT)"]
+    end
+
+    subgraph Agents["5. Autonomous AI Agent Ecosystem"]
+        Stdio -->|Direct Process Pipe| Claude["Claude Desktop (Local Agent)"]
         SSE -->|TLS Tunnel / Reverse Proxy| GPT["ChatGPT Custom MCP (Cloud Agent)"]
     end
 ```
