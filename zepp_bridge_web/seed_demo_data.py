@@ -25,8 +25,12 @@ from db import (
 )
 from server import save_session
 
+def _log(msg: str):
+    sys.stderr.write(f"{msg}\n")
+    sys.stderr.flush()
+
 def seed_demo_data(days: int = 90, clear_existing: bool = False):
-    print(f"[DemoSeed] Initializing SQLite database schema...")
+    _log(f"[DemoSeed] Initializing SQLite database schema...")
     init_db()
 
     # Save mock profile session so session getters return a valid demo profile
@@ -48,7 +52,7 @@ def seed_demo_data(days: int = 90, clear_existing: bool = False):
     start_date = today - datetime.timedelta(days=days - 1)
     now_ts = int(time.time())
 
-    print(f"[DemoSeed] Generating {days} days of synthetic biometric telemetry ({start_date} to {today})...")
+    _log(f"[DemoSeed] Generating {days} days of synthetic biometric telemetry ({start_date} to {today})...")
 
     daily_records = []
     hourly_records = []
@@ -209,13 +213,13 @@ def seed_demo_data(days: int = 90, clear_existing: bool = False):
     update_sync_meta("sleep", len(sleep_records), start_date.strftime("%Y-%m-%d"), today.strftime("%Y-%m-%d"), now_ts)
     update_sync_meta("workouts", len(workout_records), start_date.strftime("%Y-%m-%d"), today.strftime("%Y-%m-%d"), now_ts)
 
-    print(f"[DemoSeed] Successfully seeded:")
-    print(f"  • {len(daily_records)} Daily Activity Summaries")
-    print(f"  • {len(hourly_records)} Hourly Activity Samples")
-    print(f"  • {len(sleep_records)} Sleep Records (Scores & Stages)")
-    print(f"  • {len(workout_records)} Athletic Workouts")
-    print(f"  • {len(hr_records)} Heart Rate Samples")
-    print(f"[DemoSeed] Database ready at: zepp_data.sqlite")
+    _log(f"[DemoSeed] Successfully seeded:")
+    _log(f"  • {len(daily_records)} Daily Activity Summaries")
+    _log(f"  • {len(hourly_records)} Hourly Activity Samples")
+    _log(f"  • {len(sleep_records)} Sleep Records (Scores & Stages)")
+    _log(f"  • {len(workout_records)} Athletic Workouts")
+    _log(f"  • {len(hr_records)} Heart Rate Samples")
+    _log(f"[DemoSeed] Database ready at: zepp_data.sqlite")
 
 if __name__ == "__main__":
     seed_demo_data(days=90)

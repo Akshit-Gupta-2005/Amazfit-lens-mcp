@@ -494,6 +494,13 @@ def sync_zepp_data(days: int = 30) -> Dict[str, Any]:
     """
     days = max(1, min(days, 365))
     try:
+        session = get_session() or {}
+        if session.get("is_demo"):
+            return {
+                "status": "success",
+                "message": f"Demo mode active: synthetic biometric telemetry for the past {days} days is already present in SQLite.",
+                "synced_counts": {"sleep": days, "daily_activity": days, "workouts": max(1, days // 3)}
+            }
         token = get_valid_access_token()
         engine = ZeppDataSyncEngine(token)
         counts = engine.sync_all(days=days)
